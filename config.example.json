@@ -1,0 +1,20 @@
+{
+  "log_level": "INFO",
+  "audio": {
+    "sample_rate_hz": 16000,
+    "sample_width_bytes": 2,
+    "channels": 1,
+    "ring_buffer_bytes": 64000,
+    "chunk_bytes_hint": 2048
+  },
+  "devices": [
+    {
+      "name": "atom-echo-test",
+      "room": "kitchen",
+      "host": "192.168.5.236",
+      "firmware": "esphome",
+      "receiver": "esphome",
+      "enabled": true
+    }
+  ]
+}
