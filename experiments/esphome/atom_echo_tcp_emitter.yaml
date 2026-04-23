@@ -1,0 +1,60 @@
+substitutions:
+  name: atom-echo-tcp-emitter
+  friendly_name: Atom Echo TCP Emitter
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  comment: Experimental custom emitter for Jarvis-Ears TCP collector. Not production.
+
+esp32:
+  board: m5stack-atom
+  framework:
+    # This pins the framework to a version reported as a workaround for some
+    # ESPHome microphone regressions. It is still part of the experiment, not a
+    # claim that all capture issues are solved.
+    type: esp-idf
+    version: 4.4.8
+    platform_version: 5.4.0
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  level: INFO
+
+# No Home Assistant API. No production receiver integration.
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [tcp_audio_emitter]
+
+i2s_audio:
+  - id: atom_echo_i2s
+    i2s_lrclk_pin: GPIO33
+    i2s_bclk_pin: GPIO19
+
+microphone:
+  - platform: i2s_audio
+    id: atom_echo_mic
+    i2s_audio_id: atom_echo_i2s
+    adc_type: external
+    i2s_din_pin: GPIO23
+    pdm: true
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: left
+    correct_dc_offset: true
+    on_data:
+      - logger.log:
+          format: "Atom Echo microphone callback bytes=%d"
+          args: ["x.size()"]
+
+tcp_audio_emitter:
+  id: atom_echo_tcp_emitter
+  microphone: atom_echo_mic
+  host: "192.168.7.210"
+  port: 8765
+  auto_start: true
