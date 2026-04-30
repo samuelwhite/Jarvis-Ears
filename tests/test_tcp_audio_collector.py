@@ -2,7 +2,11 @@ import shutil
 import unittest
 from pathlib import Path
 
-from experiments.tcp_audio_collector import CollectorStats, maybe_write_debug_artifact
+from experiments.tcp_audio_collector import (
+    CollectorStats,
+    finalize_session,
+    maybe_write_debug_artifact,
+)
 
 
 class CollectorStatsTests(unittest.TestCase):
@@ -53,6 +57,24 @@ class DebugArtifactTests(unittest.TestCase):
             enabled=True,
             output_path=output_path,
             payload=b"abc",
+        )
+
+        self.assertEqual(result, output_path)
+        self.assertEqual(output_path.read_bytes(), b"abc")
+
+    def test_finalize_session_writes_debug_artifact(self) -> None:
+        temp_dir = Path("tests/.tmp_collector")
+        temp_dir.mkdir(exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+        output_path = temp_dir / "capture.bin"
+        stats = CollectorStats(session_started_at=0.0)
+        stats.record_chunk(chunk_size=3, received_at=0.1)
+
+        result = finalize_session(
+            stats=stats,
+            payload=b"abc",
+            write_debug_artifact=True,
+            debug_output=output_path,
         )
 
         self.assertEqual(result, output_path)

@@ -142,6 +142,25 @@ def maybe_write_debug_artifact(
     return output_path
 
 
+def finalize_session(
+    stats: CollectorStats,
+    payload: bytes,
+    write_debug_artifact: bool,
+    debug_output: Path,
+) -> Path | None:
+    """Log session results and optionally persist an explicit debug artifact."""
+
+    artifact_path = maybe_write_debug_artifact(
+        enabled=write_debug_artifact,
+        output_path=debug_output,
+        payload=payload,
+    )
+    LOGGER.info("Session summary: %s", stats.summary_line())
+    if artifact_path is not None:
+        LOGGER.info("Debug artifact written to %s", artifact_path)
+    return artifact_path
+
+
 def serve_forever(host: str, port: int, recv_size: int, write_debug_artifact: bool, debug_output: Path) -> int:
     """Run the collector until interrupted."""
 
@@ -158,43 +177,57 @@ def serve_forever(host: str, port: int, recv_size: int, write_debug_artifact: bo
         server_socket.bind((host, port))
         server_socket.listen(1)
 
-        while True:
-            LOGGER.info("Waiting for emitter connection")
-            connection, address = server_socket.accept()
-            with connection:
-                LOGGER.info("Emitter connected from %s:%d", address[0], address[1])
-                session_started_at = time.monotonic()
-                stats = CollectorStats(session_started_at=session_started_at)
-                payload = bytearray()
+        active_stats: CollectorStats | None = None
+        active_payload = bytearray()
 
-                while True:
-                    chunk = connection.recv(recv_size)
-                    if not chunk:
-                        LOGGER.info("Emitter disconnected")
-                        break
+        try:
+            while True:
+                LOGGER.info("Waiting for emitter connection")
+                connection, address = server_socket.accept()
+                with connection:
+                    LOGGER.info("Emitter connected from %s:%d", address[0], address[1])
+                    session_started_at = time.monotonic()
+                    active_stats = CollectorStats(session_started_at=session_started_at)
+                    active_payload = bytearray()
 
-                    received_at = time.monotonic()
-                    observation = stats.record_chunk(len(chunk), received_at)
-                    payload.extend(chunk)
-                    delta_text = "first chunk"
-                    if observation.delta_seconds is not None:
-                        delta_text = f"delta={observation.delta_seconds:.4f}s"
-                    LOGGER.info(
-                        "Received chunk bytes=%d total_bytes=%d offset=%.4fs %s",
-                        observation.chunk_size,
-                        stats.total_bytes,
-                        observation.offset_seconds,
-                        delta_text,
+                    while True:
+                        chunk = connection.recv(recv_size)
+                        if not chunk:
+                            LOGGER.info("Emitter disconnected")
+                            break
+
+                        received_at = time.monotonic()
+                        observation = active_stats.record_chunk(len(chunk), received_at)
+                        active_payload.extend(chunk)
+                        delta_text = "first chunk"
+                        if observation.delta_seconds is not None:
+                            delta_text = f"delta={observation.delta_seconds:.4f}s"
+                        LOGGER.info(
+                            "Received chunk bytes=%d total_bytes=%d offset=%.4fs %s",
+                            observation.chunk_size,
+                            active_stats.total_bytes,
+                            observation.offset_seconds,
+                            delta_text,
+                        )
+
+                    finalize_session(
+                        stats=active_stats,
+                        payload=bytes(active_payload),
+                        write_debug_artifact=write_debug_artifact,
+                        debug_output=debug_output,
                     )
-
-                artifact_path = maybe_write_debug_artifact(
-                    enabled=write_debug_artifact,
-                    output_path=debug_output,
-                    payload=bytes(payload),
+                    active_stats = None
+                    active_payload = bytearray()
+        except KeyboardInterrupt:
+            LOGGER.warning("Collector interrupted by user")
+            if active_stats is not None:
+                finalize_session(
+                    stats=active_stats,
+                    payload=bytes(active_payload),
+                    write_debug_artifact=write_debug_artifact,
+                    debug_output=debug_output,
                 )
-                LOGGER.info("Session summary: %s", stats.summary_line())
-                if artifact_path is not None:
-                    LOGGER.info("Debug artifact written to %s", artifact_path)
+            return 0
 
 
 def main() -> int:
